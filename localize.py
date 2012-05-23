@@ -13,9 +13,11 @@
 
 from codecs import open
 from re import compile
+from re import search
 from copy import copy
 import io
 import os
+import sys
 
 re_translation = compile(r'^"(.+)" = "(.+)";$')
 re_comment_single = compile(r'^/\*.*\*/$')
@@ -126,22 +128,23 @@ def merge(merged_fname, old_fname, new_fname):
 
 STRINGS_FILE = 'Localizable.strings'
 
-
 # use ibtool to extract localizable strings from ib files
 def export_xibs(language):
     # XIBs
-    localization = open(language + os.path.sep + 'xib.strings.new', encoding='utf_16', mode='w+')
+    global PATH_PREFIX
+    
+    language_path = PATH_PREFIX + language
+    localization = open(language_path + os.path.sep + 'xib.strings.new', encoding='utf_16', mode='w+')
 
-    ibs = [name for name in os.listdir(os.getcwd()) if name.endswith('.xib') and not os.path.isdir(name)]
-
+    ibs = [name for name in os.listdir(language_path) if name.endswith('.xib')]
     for ib in ibs:
-        ib_strings = "en.lproj/" + ib + ".strings.new"
-
+        ib_path = language_path + os.path.sep + ib
+        ib_strings = ib_path + ".strings.new"
         # extract only if modified
-        print 'ibtool --export-strings-file "%s" "%s"' % (ib_strings, ib)
+        print 'ibtool --export-strings-file "%s" "%s"' % (ib_strings, ib_path)
         # run ibtool only once per modification
-        if not os.path.isfile(ib_strings) or (os.stat(ib).st_mtime > os.stat(ib_strings).st_mtime):
-            os.system('ibtool --export-strings-file "%s" "%s"' % (ib_strings, ib))
+        if not os.path.isfile(ib_strings) or (os.stat(ib_path).st_mtime > os.stat(ib_strings).st_mtime):
+            os.system('ibtool --export-strings-file "%s" "%s"' % (ib_strings, ib_path))
             os.system('touch %s' % ib_strings)
 
         fin = open(ib_strings, encoding='utf_16', mode='r')
@@ -168,29 +171,42 @@ def export_xibs(language):
 def concat(file1, file2):
     io.open(file1, encoding='utf-16', mode='a').write(open(file2, encoding='utf-16').read())
 
+def find_lproj(path):
+    if os.path.isfile(path):
+        if search('en\.lproj', path) is not None:
+            return path
+    else:
+        for item in os.listdir(path):
+            if find_lproj(path + os.path.sep + item) is not None:
+                return path + os.path.sep + item
 
 def localize(path):
     # init phase the new
     start_with = 'en'
+    global PATH_PREFIX
+    PATH_PREFIX = find_lproj( path ) + os.path.sep;
 
     language = start_with + '.lproj'
-    original = merged = language + os.path.sep + STRINGS_FILE
+    language_path = PATH_PREFIX + language
+    original = merged = PATH_PREFIX + language + os.path.sep + STRINGS_FILE
     old = original + '.old'
     new = original + '.new'
 
     if os.path.isfile(original):
         os.rename(original, old)
-        os.system('genstrings -q -o "%s" `find . -name "*.m"`' % language)
+        os.system('genstrings -q -o "%s" `find . -name "*.m"`' % language_path)
         os.rename(original, new)
         concat(new, export_xibs(language))
     else:
-        os.system('genstrings -q -o "%s" `find . -name "*.m"`' % language)
+        os.system('genstrings -q -o "%s" `find . -name "*.m"`' % language_path)
 
     merge(merged, old, new)
 
-    languages = [name for name in os.listdir(path) if name.endswith('.lproj') and os.path.isdir(name) and not name.startswith('en.')]
+    languages = [name for name in os.listdir(PATH_PREFIX) if name.endswith('.lproj') and not name.startswith('en.')]
+    
     for language in languages:
-        original = merged = language + os.path.sep + STRINGS_FILE
+        original = merged = PATH_PREFIX + language + os.path.sep + STRINGS_FILE
+        print original
         old = original + '.old'
 
         if os.path.isfile(original):
